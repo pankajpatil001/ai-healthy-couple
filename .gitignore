@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.hypothesis/
+.kiro/
+documents/
+semantic-review/
+
+# Local documentation
+PRODUCT_SPEC.md
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment / secrets
+.env
+.env.*
+
+# OS
+.DS_Store
+
+Healthy_Couple_Product_Overview.pdf

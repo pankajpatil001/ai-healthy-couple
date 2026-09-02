@@ -1,0 +1,39 @@
+[project]
+name = "healthy-couple-foundation"
+version = "0.1.0"
+description = "Foundation slice (Phase 1) of Healthy Couple: auth, accounts, couples, and the authorization/privacy boundary layer."
+requires-python = ">=3.11"
+
+# Exact-pinned runtime dependencies (see requirements.txt for the same pins).
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn==0.34.0",
+    "SQLAlchemy==2.0.36",
+    "alembic==1.14.0",
+    "psycopg[binary]==3.2.3",
+    "redis==5.2.1",
+    "pydantic==2.10.4",
+    "pydantic-settings==2.7.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.3.4",
+    "hypothesis==6.123.2",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+markers = [
+    "property: property-based tests (Hypothesis, min 100 iterations)",
+    "requires_postgres: needs a reachable PostgreSQL instance (ephemeral schema)",
+    "requires_redis: needs a reachable Redis instance (test namespace)",
+]
