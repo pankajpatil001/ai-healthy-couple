@@ -100,6 +100,17 @@ class Settings(BaseSettings):
     # resolved via the SecretsProvider under `identity_provider_client_secret`.
     identity_provider_issuer: str = ""
 
+    # --- Application-level encryption (Private Reflection content) -------
+    # The *active* key id used when encrypting new content. It is a non-secret
+    # label only: the actual key material is resolved through the SecretsProvider
+    # (never stored here or in the database). Ciphertext embeds the key id that
+    # produced it (envelope ``v1:<key_id>:...``) so historical records remain
+    # decryptable after the active key advances — enabling future rotation
+    # without a schema change. The per-key secret name is derived from the id:
+    # key id ``reflection-v1`` -> secret ``reflection_encryption_key_reflection_v1``
+    # (env var ``HC_SECRET_REFLECTION_ENCRYPTION_KEY_REFLECTION_V1``).
+    reflection_encryption_key_id: str = "reflection-v1"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

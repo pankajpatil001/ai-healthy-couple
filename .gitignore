@@ -22,4 +22,12 @@ venv/
 # OS
 .DS_Store
 
+# Android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk
+
 Healthy_Couple_Product_Overview.pdf

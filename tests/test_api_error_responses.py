@@ -139,7 +139,9 @@ def harness(pg_schema):
     app.dependency_overrides[deps.get_couple_service] = _couple_service
     app.dependency_overrides[deps.get_invitation_service] = _invitation_service
 
-    client = TestClient(app, raise_server_exceptions=True)
+    from tests.conftest import VersionedTestClient
+
+    client = VersionedTestClient(app, raise_server_exceptions=True)
     yield _Harness(app, client, session)
 
 

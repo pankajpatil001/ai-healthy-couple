@@ -9,6 +9,10 @@ redis==5.2.1
 pydantic==2.10.4
 pydantic-settings==2.7.0
 
+# Application-level encryption (AES-256-GCM) and production password hashing (Argon2id).
+cryptography==44.0.0
+argon2-cffi==23.1.0
+
 # Test dependencies pinned at exact versions.
 pytest==8.3.4
 hypothesis==6.123.2

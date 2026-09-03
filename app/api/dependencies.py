@@ -146,33 +146,32 @@ def get_session_service(
 
 
 # ---------------------------------------------------------------------------
-# Identity provider (process-wide for this slice)
+# Identity provider (production: application-managed Argon2id — Phase 2)
 # ---------------------------------------------------------------------------
 #
 # Credential material is owned by the identity provider, never the User row
-# (08-technology-stack.md §9). A managed IdP replaces this in production; for the
-# Foundation slice a single process-wide :class:`InMemoryIdentityProvider` is
-# shared across requests so a credential registered at ``/auth/register`` is
-# verifiable at ``/auth/login`` and ``/auth/reauth`` within the same process.
-# It is exposed through a dependency so tests can override it with their own
-# instance for isolation.
-
-_process_identity_provider = None
+# (08-technology-stack.md §9). Phase 2 replaces the development-only in-memory
+# provider with a production :class:`Argon2idIdentityProvider` that hashes with
+# Argon2id and persists only the hash via the request-scoped
+# :class:`~app.auth.repository.CredentialRepository`. It is session-scoped so
+# credential writes participate in the request transaction. Tests override this
+# via ``app.dependency_overrides`` for isolation.
 
 
-def get_identity_provider():
-    """Provide the process-wide identity provider (overridable in tests).
+def get_identity_provider(
+    session: Annotated[Session, Depends(get_db_session)],
+):
+    """Provide the production Argon2id identity provider for the request.
 
-    Lazily constructs a single :class:`InMemoryIdentityProvider` shared for the
-    life of the process. Tests override this via ``app.dependency_overrides`` to
-    supply an isolated provider (and typically the matching in-memory stores).
+    Built per request over the request's DB session so ``register_credentials``
+    / ``reset_credentials`` writes land in the same transaction the endpoint
+    commits. Verification reads the stored hash through the credential
+    repository. Tests may override this to supply an isolated provider.
     """
-    global _process_identity_provider
-    if _process_identity_provider is None:
-        from app.auth.service import InMemoryIdentityProvider
+    from app.auth.repository import CredentialRepository
+    from app.auth.service import Argon2idIdentityProvider
 
-        _process_identity_provider = InMemoryIdentityProvider()
-    return _process_identity_provider
+    return Argon2idIdentityProvider(CredentialRepository(session))
 
 
 def get_authentication_service(
@@ -264,6 +263,36 @@ def get_invitation_service(
         audit_service=audit,
         settings=settings,
         user_lookup=UserRepository(session),
+    )
+
+
+def get_reflection_service(
+    session: Annotated[Session, Depends(get_db_session)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+):
+    """Build the :class:`ReflectionService` for the request (Phase 2).
+
+    Wires the owner-only authorization pipeline (the existing
+    :class:`AuthorizationService` backed by the SQLAlchemy relationship resolver,
+    exposed to the service through :class:`AuthorizedRepository`) with the
+    encryption-boundary :class:`ReflectionRepository` and the couple repository
+    (used only to validate an optional ``couple_id`` as context on create).
+    Authorization is applied *inside* the authorized repository, so a service
+    slip cannot widen access; decryption happens only after an authorized hit.
+    """
+    from app.authorization.repository import AuthorizedRepository
+    from app.authorization.resolver import SqlAlchemyRelationshipResolver
+    from app.authorization.service import AuthorizationService
+    from app.couples.repository import CoupleRepository
+    from app.reflections.repository import ReflectionRepository
+    from app.reflections.service import ReflectionService
+
+    authorization = AuthorizationService(SqlAlchemyRelationshipResolver(session))
+    return ReflectionService(
+        reflection_repository=ReflectionRepository(session),
+        authorized_repository=AuthorizedRepository(session, authorization),
+        couple_repository=CoupleRepository(session),
+        audit_service=audit,
     )
 
 
@@ -400,6 +429,7 @@ __all__ = [
     "get_account_service",
     "get_couple_service",
     "get_invitation_service",
+    "get_reflection_service",
     "get_request_id",
     "get_rate_limiter",
     "rate_limit",

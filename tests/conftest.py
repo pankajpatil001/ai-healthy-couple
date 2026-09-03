@@ -174,3 +174,48 @@ def redis_ns():
     finally:
         namespaced.flush_namespace()
         client.close()
+
+
+# ---------------------------------------------------------------------------
+# Versioned API test client (Phase 2: public API served under /api/v1).
+# ---------------------------------------------------------------------------
+
+from fastapi.testclient import TestClient as _FastAPITestClient
+
+#: Public API version prefix (mirrors app.api.API_V1_PREFIX). Kept as a literal
+#: here so a change to the app's prefix surfaces as a visible test update.
+_API_V1_PREFIX = "/api/v1"
+
+#: Paths that are intentionally NOT versioned (served at the application root).
+_UNVERSIONED_PATHS = frozenset({"/health"})
+
+
+class VersionedTestClient(_FastAPITestClient):
+    """A :class:`TestClient` that serves the API under ``/api/v1``.
+
+    Phase 2 moved the public API behind ``/api/v1`` (approved Decision A). The
+    existing endpoint tests were written against unversioned paths (``/auth/...``,
+    ``/couples/...``, ``/account/...``); rather than rewrite every literal, this
+    client transparently prepends the version prefix to root-absolute request
+    paths (except the unversioned liveness probe). New tests may also use plain
+    paths like ``/reflections`` and get the same treatment.
+
+    Only path-only, root-absolute URLs are rewritten; absolute URLs and
+    already-prefixed paths are passed through unchanged so nothing double-prefixes.
+    """
+
+    def request(self, method: str, url, *args, **kwargs):  # type: ignore[override]
+        url = self._versioned(url)
+        return super().request(method, url, *args, **kwargs)
+
+    @staticmethod
+    def _versioned(url):
+        if not isinstance(url, str):
+            return url
+        if not url.startswith("/"):
+            return url  # absolute URL — leave as-is
+        if url in _UNVERSIONED_PATHS:
+            return url
+        if url.startswith(_API_V1_PREFIX + "/") or url == _API_V1_PREFIX:
+            return url  # already versioned
+        return f"{_API_V1_PREFIX}{url}"

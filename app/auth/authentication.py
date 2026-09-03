@@ -218,6 +218,79 @@ class InMemoryIdentityProvider(IdentityProvider):
         self.register_credentials(auth_identifier, new_credential_material)
 
 
+class Argon2idIdentityProvider(IdentityProvider):
+    """Production :class:`IdentityProvider` using Argon2id (approved Phase 2).
+
+    Application-managed credentials: the password is hashed with Argon2id (via
+    ``argon2-cffi``) and only the encoded hash string is persisted, through the
+    injected :class:`~app.auth.repository.CredentialRepository`. The plaintext is
+    never stored or logged. Argon2id is a memory-hard, side-channel-resistant
+    password hash — the appropriate choice for at-rest credential protection
+    (08-technology-stack.md §9: "a mature authentication solution rather than
+    building authentication primitives from scratch").
+
+    The provider is addressed purely by ``auth_identifier`` (matching the
+    interface the AuthenticationService already uses). It is **session-scoped**:
+    a fresh instance is built per request with the request's DB session so
+    writes participate in the request transaction. Verification of an unknown
+    identifier still performs an Argon2 verify against a dummy hash so the timing
+    of a known vs unknown identifier does not trivially disclose existence
+    (R2.2).
+    """
+
+    def __init__(self, credential_repository) -> None:
+        from argon2 import PasswordHasher
+
+        self._repo = credential_repository
+        # Default argon2-cffi parameters are a sensible, modern baseline; they
+        # are embedded in each encoded hash so future tuning stays verifiable
+        # against old hashes without a schema change.
+        self._hasher = PasswordHasher()
+        # A precomputed dummy hash for constant-work verification of unknown
+        # identifiers (R2.2). Value is irrelevant; only the work matters.
+        self._dummy_hash = self._hasher.hash("dummy-verification-password")
+
+    def register_credentials(
+        self, auth_identifier: str, credential_material: str
+    ) -> None:
+        """Hash ``credential_material`` with Argon2id and persist the hash."""
+        self._repo.upsert(auth_identifier, self._hasher.hash(credential_material))
+
+    def verify_credentials(
+        self, auth_identifier: str, credential_material: str
+    ) -> bool:
+        """Return True iff the credential verifies against the stored hash.
+
+        Does the same Argon2 verification work whether or not the identifier is
+        known (verifying against a dummy hash when absent) so it does not
+        trivially disclose account existence via timing (R2.2). Never raises for
+        a wrong password — a mismatch returns ``False``.
+        """
+        from argon2.exceptions import VerificationError, VerifyMismatchError
+
+        stored = self._repo.get_hash(auth_identifier)
+        target = stored if stored is not None else self._dummy_hash
+        try:
+            self._hasher.verify(target, credential_material)
+        except (VerifyMismatchError, VerificationError):
+            return False
+        # A valid verify against the dummy hash (only possible if the caller
+        # guessed the dummy password) must still fail for an unknown identifier.
+        return stored is not None
+
+    def reset_credentials(
+        self, auth_identifier: str, new_credential_material: str
+    ) -> None:
+        """Replace the stored hash during recovery (R4.3).
+
+        The AuthenticationService verifies the recovery challenge before calling
+        this; here we simply re-hash and upsert the new credential.
+        """
+        self._repo.upsert(
+            auth_identifier, self._hasher.hash(new_credential_material)
+        )
+
+
 # ---------------------------------------------------------------------------
 # Recovery-challenge store (Redis-backed, single-use, time-limited)
 # ---------------------------------------------------------------------------
@@ -752,6 +825,7 @@ __all__ = [
     "AuthenticationService",
     "IdentityProvider",
     "InMemoryIdentityProvider",
+    "Argon2idIdentityProvider",
     "RecoveryChallenge",
     "RecoveryChallengeStore",
     "RedisRecoveryChallengeStore",

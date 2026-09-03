@@ -1,0 +1,6 @@
+<resources>
+    <!-- Compose supplies the real theming; this base theme just satisfies the
+         manifest and gives the activity a Material backdrop before Compose
+         attaches. -->
+    <style name="Theme.HealthyCoupleReflection" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

@@ -12,14 +12,16 @@ Models are defined in their owning domain modules:
   :class:`~app.couples.models.CoupleInvitation`,
   :class:`~app.couples.models.PrivateReflection`
 * :class:`~app.audit.models.AuditEvent`
+* :class:`~app.auth.models.Credential` (Phase 2: production application-managed
+  Argon2id credential hashes; sessions still live in Redis)
 
-(Auth stores no tables — sessions live in Redis and credentials with the
-identity provider — and Authorization owns no tables.)
+(Authorization owns no tables.)
 """
 
 from __future__ import annotations
 
 from app.audit.models import AuditEvent
+from app.auth.models import Credential
 from app.couples.models import (
     Couple,
     CoupleInvitation,
@@ -36,4 +38,5 @@ __all__ = [
     "CoupleInvitation",
     "PrivateReflection",
     "AuditEvent",
+    "Credential",
 ]
