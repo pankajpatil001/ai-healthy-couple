@@ -26,11 +26,36 @@ data class AuthUiState(
  */
 class AuthViewModel(
     private val api: ReflectionApi,
-    session: SessionStore,
+    private val session: SessionStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AuthUiState(loggedIn = session.isLoggedIn))
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
+
+    /**
+     * Revoke the session and flip auth state back to logged-out.
+     *
+     * Navigation is driven entirely by [state]; clearing it here is what returns
+     * the user to the auth screen (no local latch in the UI).
+     */
+    fun logout() {
+        api.logout()
+        _state.value = AuthUiState(loggedIn = false)
+    }
+
+    /**
+     * React to a session that expired mid-use (a 401 from an authed call).
+     *
+     * The local token is already cleared centrally by [ReflectionApi]; here we
+     * flip auth state to logged-out and surface a clear message so the user is
+     * returned to login rather than left in a broken authenticated state.
+     */
+    fun onSessionExpired() {
+        _state.value = AuthUiState(
+            loggedIn = false,
+            error = "Your session has expired. Please log in again.",
+        )
+    }
 
     fun login(identifier: String, password: String) = run(register = false, identifier, password)
 

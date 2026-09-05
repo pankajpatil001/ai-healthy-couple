@@ -68,6 +68,35 @@ class ReflectionRepository:
             )
         ).scalar_one_or_none()
 
+    def list_for_owner(self, owner_id: uuid.UUID) -> list[PrivateReflection]:
+        """Return the owner's non-deleted reflection rows (no decryption).
+
+        Scoped by ``user_id`` directly — this is the owner-only list, so it never
+        returns another user's rows, and it is entirely independent of couple
+        membership (a ``couple_id`` on a row is context only and never widens
+        visibility). Soft-deleted rows (``deleted_at`` set) are excluded. Rows
+        are returned newest-first. Content is **not** decrypted here: the list is
+        metadata-only (see :class:`~app.reflections.schemas.ReflectionSummary`),
+        so a listing never pays the cost of decrypting every reflection.
+
+        The owner-scoping here mirrors the Pattern A owner check the single-row
+        path enforces: because the query is filtered to ``user_id == owner_id``,
+        every returned row is one the actor owns, so no per-row authorization
+        re-check is needed for the list to stay fail-closed.
+        """
+        return list(
+            self._session.execute(
+                select(PrivateReflection)
+                .where(
+                    PrivateReflection.user_id == owner_id,
+                    PrivateReflection.deleted_at.is_(None),
+                )
+                .order_by(PrivateReflection.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+
     def decrypt_content(self, row: PrivateReflection) -> str:
         """Return the decrypted plaintext for an (already-authorized) row.
 

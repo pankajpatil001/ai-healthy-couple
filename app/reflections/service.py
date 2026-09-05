@@ -34,6 +34,7 @@ from app.errors import ResourceNotFoundError
 from app.reflections.repository import ReflectionRepository
 from app.reflections.schemas import (
     ReflectionCreate,
+    ReflectionSummary,
     ReflectionUpdate,
     ReflectionView,
 )
@@ -44,6 +45,8 @@ from app.reflections.schemas import (
 
 #: Recorded when a reflection is created.
 REFLECTION_CREATED_EVENT = "REFLECTION_CREATED"
+#: Recorded when the owner lists their reflections.
+REFLECTION_LISTED_EVENT = "REFLECTION_LISTED"
 #: Recorded when a reflection is read by its owner.
 REFLECTION_READ_EVENT = "REFLECTION_READ"
 #: Recorded when a reflection's content is updated.
@@ -132,6 +135,37 @@ class ReflectionService:
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
+
+    # ------------------------------------------------------------------
+    # List (owner-only, metadata only)
+    # ------------------------------------------------------------------
+
+    def list_reflections(
+        self,
+        actor: AuthenticatedActor,
+        *,
+        request_id: str | None = None,
+    ) -> list[ReflectionSummary]:
+        """Return the actor's own reflections as content-free summaries.
+
+        The query is scoped to ``actor.user_id`` in the repository, so it returns
+        only reflections the actor owns — never a current or former partner's,
+        and independent of any couple membership. Soft-deleted reflections are
+        excluded. No content is decrypted (metadata only); the full decrypted
+        content is fetched per item via :meth:`get_reflection`.
+        """
+        rows = self._reflections.list_for_owner(actor.user_id)
+        self._audit.record(
+            actor_type="USER",
+            actor_id=actor.user_id,
+            event_type=REFLECTION_LISTED_EVENT,
+            resource_type=REFLECTION_RESOURCE_TYPE,
+            resource_id=None,
+            outcome="SUCCESS",
+            request_id=request_id,
+            metadata={"attempt_count": len(rows)},
+        )
+        return [ReflectionSummary.model_validate(row) for row in rows]
 
     # ------------------------------------------------------------------
     # Read
@@ -264,6 +298,7 @@ class ReflectionService:
 __all__ = [
     "ReflectionService",
     "REFLECTION_CREATED_EVENT",
+    "REFLECTION_LISTED_EVENT",
     "REFLECTION_READ_EVENT",
     "REFLECTION_UPDATED_EVENT",
     "REFLECTION_DELETED_EVENT",

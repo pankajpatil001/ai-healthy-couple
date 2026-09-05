@@ -10,6 +10,19 @@ data class Reflection(
 )
 
 /**
+ * Lightweight metadata for a reflection in the owner's list (no content).
+ *
+ * Mirrors the backend `GET /reflections` summary; the full decrypted content is
+ * fetched per item via `GET /reflections/{id}`.
+ */
+data class ReflectionSummary(
+    val id: String,
+    val coupleId: String?,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+/**
  * A small result wrapper for API calls so the UI can render success, a typed
  * error message, and (via the ViewModel) loading/empty states without leaking
  * transport details.

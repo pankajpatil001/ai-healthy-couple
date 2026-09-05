@@ -70,9 +70,27 @@ class ReflectionView(BaseModel):
     updated_at: datetime
 
 
+class ReflectionSummary(BaseModel):
+    """Lightweight metadata for a reflection in the owner's list.
+
+    Deliberately **content-free**: the list endpoint returns only identifying
+    metadata so it never decrypts every reflection (decryption stays on the
+    single-item GET path, after authorization). The full decrypted ``content``
+    is fetched per item via ``GET /reflections/{id}``.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    couple_id: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 __all__ = [
     "ReflectionCreate",
     "ReflectionUpdate",
     "ReflectionView",
+    "ReflectionSummary",
     "MAX_CONTENT_LENGTH",
 ]

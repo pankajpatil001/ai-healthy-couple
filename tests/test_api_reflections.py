@@ -382,6 +382,107 @@ def test_create_with_couple_id_non_member_is_404(harness):
 
 
 # ---------------------------------------------------------------------------
+# List endpoint
+# ---------------------------------------------------------------------------
+
+
+def test_list_requires_authentication(harness):
+    assert harness.client.get("/reflections").status_code == 401
+
+
+def test_list_returns_only_owner_reflections(harness):
+    c = harness.client
+    owner = _register_and_login(c)
+    _create_reflection(c, owner, "mine 1")
+    _create_reflection(c, owner, "mine 2")
+
+    other = _register_and_login(c)
+    _create_reflection(c, other, "theirs")
+
+    owner_list = c.get("/reflections", headers=_bearer(owner)).json()["data"]
+    other_list = c.get("/reflections", headers=_bearer(other)).json()["data"]
+    assert len(owner_list) == 2
+    assert len(other_list) == 1
+    owner_ids = {r["id"] for r in owner_list}
+    other_ids = {r["id"] for r in other_list}
+    assert owner_ids.isdisjoint(other_ids)
+    # Summaries are metadata-only — no content field on the wire.
+    assert all("content" not in r for r in owner_list)
+
+
+def test_list_excludes_deleted(harness):
+    c = harness.client
+    token = _register_and_login(c)
+    keep = _create_reflection(c, token, "keep").json()["data"]["id"]
+    remove = _create_reflection(c, token, "remove").json()["data"]["id"]
+    assert c.delete(f"/reflections/{remove}", headers=_bearer(token)).status_code == 200
+
+    ids = {r["id"] for r in c.get("/reflections", headers=_bearer(token)).json()["data"]}
+    assert keep in ids
+    assert remove not in ids
+
+
+def test_multiple_reflections_created_and_retrieved(harness):
+    c = harness.client
+    token = _register_and_login(c)
+    ids = [
+        _create_reflection(c, token, f"note {i}").json()["data"]["id"]
+        for i in range(3)
+    ]
+    listed = {r["id"] for r in c.get("/reflections", headers=_bearer(token)).json()["data"]}
+    assert listed == set(ids)
+    for rid in ids:
+        got = c.get(f"/reflections/{rid}", headers=_bearer(token))
+        assert got.status_code == 200
+        assert got.json()["data"]["content"].startswith("note ")
+
+
+def test_partner_and_former_partner_cannot_list_others_reflections(harness):
+    """Active AND former couple members only ever see their own list."""
+    c = harness.client
+    # Build an active couple A+B.
+    a_token = _register_and_login(c)
+    couple_id = c.post("/couples", headers=_bearer(a_token)).json()["data"]["id"]
+    invite = c.post(
+        f"/couples/{couple_id}/invitations",
+        headers=_bearer(a_token),
+        json={"invitee_identifier": "list-partner-b@example.com"},
+    )
+    raw_token = invite.json()["data"]["raw_token"]
+    b_token = _register_and_login(c, "list-partner-b@example.com")
+    c.post(
+        "/invitations/accept", headers=_bearer(b_token), json={"raw_token": raw_token}
+    )
+
+    # A writes two reflections (one tagged with the shared couple).
+    _create_reflection(c, a_token, "A private 1")
+    _create_reflection(c, a_token, "A private 2", couple_id=couple_id)
+
+    # Active partner B lists: sees NONE of A's reflections.
+    b_list = c.get("/reflections", headers=_bearer(b_token)).json()["data"]
+    assert b_list == []
+
+    # Disconnect the couple; B is now a former partner.
+    grant = c.post(
+        "/auth/reauth",
+        headers=_bearer(a_token),
+        json={"reauth_proof": "pw-secret", "operation_type": "COUPLE_DISCONNECTION"},
+    ).json()["data"]["reauth_grant"]
+    assert c.post(
+        f"/couples/{couple_id}/disconnect",
+        headers=_bearer(a_token),
+        json={"reauth_grant": grant},
+    ).status_code == 200
+
+    # Former partner B still sees none of A's reflections.
+    b_list_after = c.get("/reflections", headers=_bearer(b_token)).json()["data"]
+    assert b_list_after == []
+    # A still sees their own two.
+    a_list = c.get("/reflections", headers=_bearer(a_token)).json()["data"]
+    assert len(a_list) == 2
+
+
+# ---------------------------------------------------------------------------
 # Encryption at rest
 # ---------------------------------------------------------------------------
 

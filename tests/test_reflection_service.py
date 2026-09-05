@@ -109,6 +109,14 @@ class FakeReflectionRepository:
             return None
         return row
 
+    def list_for_owner(self, owner_id):
+        # Mirrors the real repo: owner-scoped, non-deleted, newest-first.
+        rows = [
+            r for r in self.rows.values()
+            if r.user_id == owner_id and r.deleted_at is None
+        ]
+        return sorted(rows, key=lambda r: r.created_at, reverse=True)
+
     def decrypt_content(self, row):
         self.decrypt_calls.append(row.id)
         if not row.content_ciphertext:
@@ -246,6 +254,68 @@ def test_create_with_couple_id_non_member_is_privacy_safe_404(wiring):
         service.create_reflection(
             actor, ReflectionCreate(content="note", couple_id=uuid.uuid4())
         )
+
+
+# ---------------------------------------------------------------------------
+# List (owner-only, metadata only)
+# ---------------------------------------------------------------------------
+
+
+def test_list_returns_only_owner_reflections(wiring):
+    service, _, _, _ = wiring
+    owner = _actor()
+    other = _actor()
+    service.create_reflection(owner, ReflectionCreate(content="mine 1"))
+    service.create_reflection(owner, ReflectionCreate(content="mine 2"))
+    service.create_reflection(other, ReflectionCreate(content="theirs"))
+
+    owner_list = service.list_reflections(owner)
+    assert len(owner_list) == 2
+    other_list = service.list_reflections(other)
+    assert len(other_list) == 1
+    # No id overlap between the two owners' lists.
+    assert {s.id for s in owner_list}.isdisjoint({s.id for s in other_list})
+
+
+def test_list_excludes_deleted(wiring):
+    service, _, _, _ = wiring
+    owner = _actor()
+    a = service.create_reflection(owner, ReflectionCreate(content="keep"))
+    b = service.create_reflection(owner, ReflectionCreate(content="remove"))
+    service.delete_reflection(owner, b.id)
+
+    ids = {s.id for s in service.list_reflections(owner)}
+    assert a.id in ids
+    assert b.id not in ids
+
+
+def test_list_is_metadata_only_no_decryption(wiring):
+    service, refl_repo, _, _ = wiring
+    owner = _actor()
+    service.create_reflection(owner, ReflectionCreate(content="secret"))
+    refl_repo.decrypt_calls.clear()
+    summaries = service.list_reflections(owner)
+    # Summaries carry no content field and listing never decrypts.
+    assert refl_repo.decrypt_calls == []
+    assert not hasattr(summaries[0], "content")
+
+
+def test_list_empty_for_new_user(wiring):
+    service, _, _, _ = wiring
+    assert service.list_reflections(_actor()) == []
+
+
+def test_multiple_reflections_created_and_each_retrievable(wiring):
+    service, _, _, _ = wiring
+    owner = _actor()
+    created = [
+        service.create_reflection(owner, ReflectionCreate(content=f"note {i}"))
+        for i in range(3)
+    ]
+    listed_ids = {s.id for s in service.list_reflections(owner)}
+    assert listed_ids == {c.id for c in created}
+    for c in created:
+        assert service.get_reflection(owner, c.id).content.startswith("note ")
 
 
 # ---------------------------------------------------------------------------

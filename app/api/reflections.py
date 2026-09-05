@@ -57,6 +57,26 @@ def create_reflection(
 
 
 @router.get(
+    "",
+    dependencies=[Depends(rate_limit("resource-read"))],
+)
+def list_reflections(
+    actor: CurrentActor,
+    reflections: Annotated[ReflectionService, Depends(get_reflection_service)],
+    request_id: RequestId,
+) -> dict:
+    """Return the caller's own reflections as content-free summaries.
+
+    Owner-scoped: only the authenticated user's reflections are returned, never a
+    current or former partner's, and independent of any couple membership.
+    Soft-deleted reflections are excluded. Content is not decrypted here — fetch
+    a single reflection's decrypted content via ``GET /reflections/{id}``.
+    """
+    summaries = reflections.list_reflections(actor, request_id=request_id)
+    return envelope([s.model_dump(mode="json") for s in summaries])
+
+
+@router.get(
     "/{reflection_id}",
     dependencies=[Depends(rate_limit("resource-read"))],
 )

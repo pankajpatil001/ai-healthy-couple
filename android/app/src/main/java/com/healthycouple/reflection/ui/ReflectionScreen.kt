@@ -1,5 +1,6 @@
 package com.healthycouple.reflection.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,14 +9,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -23,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,18 +37,37 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.healthycouple.reflection.data.ReflectionSummary
 
 /**
- * The Private Reflection screen. Renders exactly one of: loading, edit (create
- * or update), view (with edit/delete), or the empty state. The privacy notice is
- * always visible so the user understands the reflection is private to them.
+ * The Private Reflection feature UI. List-first:
+ *
+ *  - LIST: the owner's reflections (loaded from the backend on entry), with a
+ *    "+ New Reflection" action and an empty state.
+ *  - DETAIL: a selected reflection's decrypted content, with Edit / Delete.
+ *  - EDIT: compose a new reflection or edit the open one.
+ *
+ * The privacy notice is always visible. State is kept consistent by reloading
+ * the list after every create / update / delete.
  */
 @Composable
 fun ReflectionScreen(vm: ReflectionViewModel, onLogout: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
 
+    // Load the list once when the screen first appears.
+    LaunchedEffect(Unit) { vm.loadList() }
+
     Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-        HeaderRow(onLogout = onLogout)
+        HeaderRow(
+            title = when (state.screen) {
+                Screen.LIST -> "Private Reflections"
+                Screen.DETAIL -> "Reflection"
+                Screen.EDIT -> if (state.isNew) "New reflection" else "Edit reflection"
+            },
+            showBack = state.screen != Screen.LIST,
+            onBack = vm::backToList,
+            onLogout = onLogout,
+        )
         PrivacyNotice()
         Spacer(Modifier.padding(8.dp))
 
@@ -51,31 +76,45 @@ fun ReflectionScreen(vm: ReflectionViewModel, onLogout: () -> Unit) {
         Box(modifier = Modifier.fillMaxSize()) {
             when {
                 state.loading -> LoadingState()
-                state.editing -> EditState(
-                    initial = state.reflection?.content.orEmpty(),
-                    isNew = state.reflection == null,
+                state.screen == Screen.EDIT -> EditState(
+                    initial = state.selected?.content.orEmpty(),
+                    isNew = state.isNew,
                     onSave = vm::save,
-                    onCancel = vm::cancelEdit,
+                    onCancel = vm::backToList,
                 )
-                state.reflection != null -> ViewState(
-                    content = state.reflection!!.content,
+                state.screen == Screen.DETAIL && state.selected != null -> DetailState(
+                    content = state.selected!!.content,
                     onEdit = vm::startEdit,
                     onDelete = vm::delete,
                 )
-                else -> EmptyState(onStart = vm::startNew)
+                state.isListEmpty -> EmptyState(onStart = vm::startNew)
+                else -> ListState(
+                    items = state.items,
+                    onOpen = vm::open,
+                    onNew = vm::startNew,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun HeaderRow(onLogout: () -> Unit) {
+private fun HeaderRow(
+    title: String,
+    showBack: Boolean,
+    onBack: () -> Unit,
+    onLogout: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Private Reflections", style = MaterialTheme.typography.titleLarge)
+        if (showBack) {
+            TextButton(onClick = onBack) { Text("< Back") }
+        } else {
+            Text(title, style = MaterialTheme.typography.titleLarge)
+        }
         TextButton(onClick = onLogout) { Text("Log out") }
     }
 }
@@ -118,7 +157,46 @@ private fun EmptyState(onStart: () -> Unit) {
 }
 
 @Composable
-private fun ViewState(content: String, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun ListState(
+    items: List<ReflectionSummary>,
+    onOpen: (String) -> Unit,
+    onNew: () -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(items, key = { it.id }) { summary ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpen(summary.id) },
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Reflection",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "Updated ${summary.updatedAt}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+        ExtendedFloatingActionButton(
+            onClick = onNew,
+            icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+            text = { Text("New Reflection") },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        )
+    }
+}
+
+@Composable
+private fun DetailState(content: String, onEdit: () -> Unit, onDelete: () -> Unit) {
     var confirmDelete by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
